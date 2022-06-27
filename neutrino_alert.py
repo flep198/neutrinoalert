@@ -151,7 +151,7 @@ password=input("Please enter your email password:")
 
 #test alert
 #sendInfoMail(password)
-#DoAlert()
+DoAlert()
 
 #let the program run
 while True:
