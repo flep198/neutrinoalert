@@ -10,6 +10,8 @@ from tqdm import tqdm
 import astropy.units as u
 from datetime import datetime
 from functools import partial
+import subprocess
+import os
 
 #get neutrino alert table from AMON
 def getNeutrinoAlert():
@@ -25,6 +27,8 @@ def DoAlert(sleep_time=0.05,duration=60):
     leds=LEDBoard(21,20,7,8,25,24,23,18,15)
     start_time=time.time()
     end_time=time.time()
+    #play audio alert
+    player=subprocess.Popen(["mplayer","alert.wav","-loop","10"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     #do alert
     while (end_time-start_time)<duration:
         leds.value=(0,1,1,1,1,1,1,1,1)
@@ -46,7 +50,7 @@ def DoAlert(sleep_time=0.05,duration=60):
         leds.value=(1,1,1,1,1,1,1,1,0)
         sleep(sleep_time)
         end_time=time.time()
-
+    
 #this sends an email with information about the latest neutrino event in AMON table
 def sendInfoMail(password,update=False):
     print("Neutrino Alert!")
@@ -68,7 +72,7 @@ def sendInfoMail(password,update=False):
     neutrino_name=neutrino_name+neutrino_letter
 
     #read RFC catalog
-    df_VLBI = pd.DataFrame(data=pd.read_table('VLBI_RFC_2022a.txt',delim_whitespace=True))
+    df_VLBI = pd.DataFrame(data=pd.read_table('VLBI_RFC_2022a.txt',delim_whitespace=True,dtype={'DecD':'str'}))
     df_VLBI["ra"]=df_VLBI["RAh"].astype(str)+":"+df_VLBI["RAm"].astype(str)+":"+df_VLBI["RAs"].astype(str)
     df_VLBI["decl"]=df_VLBI["DecD"].astype(str)+":"+df_VLBI["Decm"].astype(str)+":"+df_VLBI["Decs"].astype(str)
 
@@ -151,17 +155,20 @@ password=input("Please enter your email password:")
 
 #test alert
 #sendInfoMail(password)
-DoAlert()
+#DoAlert()
 
 #let the program run
 while True:
-    new_table=getNeutrinoAlert()
-    n_new=len(new_table)
-    if n_new>n_ini:
-        if new_table["Rev"]==0: #in this case, this is a completely new alert
-            sendInfoMail(password)
-            DoAlert()
-        else: #in this case, this is only an update, to a previous alert
-            sendInfoMail(password,update=True)
-    n_ini=n_new
+    try:
+        new_table=getNeutrinoAlert()
+        n_new=len(new_table)
+        if n_new>n_ini:
+            if new_table["Rev"][0]==0: #in this case, this is a completely new alert
+                sendInfoMail(password)
+                DoAlert()
+            else: #in this case, this is only an update, to a previous alert
+                sendInfoMail(password,update=True)
+        n_ini=n_new
+    except: 
+        print("Connection error...")
     sleep(5*60)
