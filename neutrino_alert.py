@@ -147,9 +147,100 @@ def sendInfoMail(password,update=False):
                 server.sendmail(sender_email,email,message_to_send)
                 print("Mail sent to "+ name + " ("+email+")")
 
+def getRFCsources_inCirc(df_VLBI,neutrino_ra,neutrino_dec,neutrino_ra_err,neutrino_dec_err):
+
+    field_sources=df_VLBI[(df_VLBI["ra"]<(neutrino_ra+neutrino_ra_err[0])) 
+                          & (df_VLBI["ra"]>(neutrino_ra+neutrino_ra_err[1])) 
+                          & (df_VLBI["decl"]<(neutrino_dec+neutrino_dec_err[0])) 
+                          & (df_VLBI["decl"]>(neutrino_dec+neutrino_dec_err[1]))][["J2000name"]]
+    
+    return field_sources["J2000name"].values
+
+
+
+
+def sendGCNMail(password,dataframe):
+    print("Neutrino Alert!")
+   
+    #create information to send in email
+    new_neutrino=dataframe.iloc[0]
+    neutrino_name=new_neutrino["IC Name"]
+
+    #read RFC catalog
+    df_VLBI = pd.DataFrame(data=pd.read_table('VLBI_RFC_2022a.txt',delim_whitespace=True,dtype={'DecD':'str'}))
+    df_VLBI["ra"]=df_VLBI["RAh"].astype(str)+":"+df_VLBI["RAm"].astype(str)+":"+df_VLBI["RAs"].astype(str)
+    df_VLBI["decl"]=df_VLBI["DecD"].astype(str)+":"+df_VLBI["Decm"].astype(str)+":"+df_VLBI["Decs"].astype(str)
+
+    #here, one could add a pre-selection of sources according to RA/DEC of the NeutrinoEvent
+
+    #create SkyCoord objects    
+    obj_VLBI = SkyCoord(df_VLBI["ra"], df_VLBI["decl"], frame="icrs",unit=(u.hourangle, u.deg))
+
+    #convert RA/Dec columns to degrees
+    df_VLBI["ra"]=obj_VLBI.ra.deg
+    df_VLBI["decl"]=obj_VLBI.dec.deg
+
+    
+    ra=float(new_neutrino["RA"])
+    ra_err=[float(new_neutrino["Ra_err_plus"]),float(new_neutrino["Ra_err_minus"])]
+    dec=float(new_neutrino["Dec"])
+    dec_err=[float(new_neutrino["Dec_err_plus"]),float(new_neutrino["Dec_err_minus"])]
+    field_sources=getRFCsources_inCirc(df_VLBI,ra,dec,ra_err,dec_err)
+    gcn_url=new_neutrino["GCN_link"].split('"')[1]
+
+    message="""Subject: {subject}
+
+    Hi {name}, 
+    there has been a new GCN Circular about the most recent neutrino event.
+    The currently available 90% confidence region contains the following {n_rfc} RFC sources:
+    {source_list}
+
+    You can also check the RFC VLBI calibrator database here: {rfc_url}
+    And details about the alert reported via the GCN Circular here: {gcn_url}
+
+    Enjoy the rest of your day!
+    Your TELAMON Neutrino Alert
+
+    """
+
+    message=partial(message.format,subject="Update for Neutrino Event " + neutrino_name)
+ 
+    
+    #send email
+    port = 587 # For SSL
+    smtp_server = "smtp.mail.de"
+    sender_email = "neutrino.alert@mail.de"
+        
+    # Create a secure SSL context
+    context = ssl.create_default_context()
+    
+    print("Starting server...")
+
+    with smtplib.SMTP(smtp_server, port) as server:
+        server.starttls(context=context)
+        server.login("neutrino.alert@mail.de", password)
+        print("Opening contacts_file.csv")
+        with open("contacts_file.csv") as file:
+            reader = csv.reader(file)
+            next(reader)
+            for name, email in reader:
+                source_list=""
+                for j,source in enumerate(field_sources):
+                    source_list=source_list+"\n"+str(source)
+                rfc_url="http://astrogeo.org/cgi-bin/calib_search_form.csh?ra="+str(new_neutrino["RA"])+"d&dec="+str(new_neutrino["Dec"])+"d&num_sou=20&format=html"
+                message_to_send=message(name=name,n_rfc=len(field_sources),source_list=source_list,rfc_url=rfc_url,gcn_url=gcn_url)
+                server.sendmail(sender_email,email,message_to_send)
+                print("Mail sent to "+ name + " ("+email+")")
+
+
+
 #start program and load initial neutrino alert frame
 n_ini=len(getNeutrinoAlert())
 
+#also load GCN circulars
+df_circ=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
+n_circ_ini=len(df_circ)
+print(n_circ_ini)
 #ask for email password:
 password=input("Please enter your email password:")
 
@@ -159,16 +250,30 @@ password=input("Please enter your email password:")
 
 #let the program run
 while True:
-    try:
+    try:    
+        #check updated AMON alerts
         new_table=getNeutrinoAlert()
         n_new=len(new_table)
+
+        #check updated GCN circular alerts
+        os.system("python3 update_circular_alert.py")
+        df_circ_new=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
+        n_circ_new=len(df_circ_new)
+        print(n_circ_new)
+        #check if new AMON alert is available
         if n_new>n_ini:
             if new_table["Rev"][0]==0: #in this case, this is a completely new alert
                 sendInfoMail(password)
                 DoAlert()
             else: #in this case, this is only an update, to a previous alert
                 sendInfoMail(password,update=True)
+    
+        #check if new GCN circular is available
+        if n_circ_new>n_circ_ini:
+            sendGCNMail(password,df_circ_new)
+
         n_ini=n_new
-    except: 
+        n_circ_ini=n_circ_new
+    except:
         print("Connection error...")
-    sleep(5*60)
+    
