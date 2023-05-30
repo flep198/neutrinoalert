@@ -10,14 +10,22 @@ from datetime import datetime
 from astropy.table import Table
 from astropy.time import Time
 import sys
+from selenium import webdriver
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from bs4 import BeautifulSoup
+from pyvirtualdisplay import Display
+import warnings
+warnings.filterwarnings("ignore")
 
-url1 = 'https://gcn.gsfc.nasa.gov/gcn3_archive.html'
-url2 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old145.html'
-url3 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old144.html'
-url4 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old143.html'
-url5 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old142.html'
+#url1 = 'https://gcn.gsfc.nasa.gov/gcn3_archive.html'
+#url2 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old145.html'
+#url3 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old144.html'
+#url4 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old143.html'
+#url5 = 'https://gcn.gsfc.nasa.gov/gcn3_arch_old142.html'
 
-urls=[url1,url2,url3,url4,url5]
+url_new = 'https://gcn.nasa.gov/circulars'
+
+urls=[url_new]
 
 #returns nth number contained in a string (line)
 def extract_number(line,n):
@@ -52,23 +60,41 @@ def getNeutrinoInfo(urls):
     ic_inf=np.empty((1, 11), dtype=object)
     
     for url in urls:
-        html=requests.get(url,stream=True)       
+        #start selenium
 
-        for line in html.iter_lines():
-            str_line=line.decode('unicode_escape') #convert bytes object to string
+        display = Display(visible=0, size=(800, 600))
+        display.start()
+
+        driver = webdriver.Chrome('/usr/lib/chromium-browser/chromedriver')
+
+
+        try:
+            driver.get(url)
+            html=driver.page_source
+        except:
+            print("Error connecting to GCN database")
+
+        soup=BeautifulSoup(html,"lxml")
+
+        for link in soup.find_all("a"):
+            str_line=link.text #get GCN title string
 
             #check if GCN is about IceCube Event
-            if "LI" in str_line and 'IceCube observation of a high-energy neutrino candidate' in str_line:
-                gcn_nr=int(str_line[17:22])
-                ic_name=str_line[46:53]
+            if 'IceCube observation of a high-energy neutrino candidate' in str_line:
+                ic_name=link.text[8:15]
 
                 #load information about IceCube Event
-                ic_html = requests.get("https://gcn.gsfc.nasa.gov/gcn3/"+str(gcn_nr)+".gcn3",stream=True)
+                ic_html_link = link.get("href")
+                gcn_nr = ic_html_link.split("/")[-1]
+                try:
+                    driver.get("https://gcn.nasa.gov"+ic_html_link)
+                    ic_html=driver.page_source
+                except:
+                    print("Connection error to GCN database for " + ic_html_link)
 
-                #Extract Neutrino Data from GCN page
-                for ic_line in ic_html.iter_lines():
-                    ic_str_line=ic_line.decode('unicode_escape')
+                #Extract Neutrino Data from GCN page 
 
+                for ic_str_line in ic_html.splitlines():      
                     if ic_str_line.startswith("Date:"):
                         date=ic_str_line[6:].split()[0]
                     elif ic_str_line.startswith("Time:"):
@@ -89,42 +115,43 @@ def getNeutrinoInfo(urls):
                         else:
                             dec_err_plus=extract_number(ic_str_line,1)
                             dec_err_minus=extract_number(ic_str_line,2)
-                gcn_link='=HYPERLINK("https://gcn.gsfc.nasa.gov/gcn3/'+str(gcn_nr)+'.gcn3","GCN link")'
+                gcn_link='=HYPERLINK("https://gcn.gsfc.nasa.gov/gcn3/'+str(gcn_nr)+',"GCN link")'
                 ic=[[ic_name,int(gcn_nr), date,time,ra,ra_err_plus,ra_err_minus,dec,dec_err_plus,dec_err_minus,gcn_link]]            
                 ic_inf=np.append(ic_inf,ic,axis=0)
 
     return ic_inf[1:]
 
+try:
+    #PART 1: QUERY GCN CIRCULARS FOR NEW EVENTS
+    #get list of neutrino events from GCN website
+    ic_inf=getNeutrinoInfo(urls)
 
-#PART 1: QUERY GCN CIRCULARS FOR NEW EVENTS
-#get list of neutrino events from GCN website
-ic_inf=getNeutrinoInfo(urls)
+    #load our own database and update it
+    df=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
+    gcn_list_in_db=df["GCN_nr"].values
 
-#load our own database and update it
-df=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
-gcn_list_in_db=df["GCN_nr"].values
+    for ic_event in ic_inf:
+        gcn_nr=ic_event[1]
+        if int(gcn_nr) in gcn_list_in_db:
+            pass
+        else:
+            df=df.append(pd.DataFrame([ic_event],columns=["IC Name","GCN_nr","Date","Time (UTC)",
+                        "RA","Ra_err_plus","Ra_err_minus",
+                        "Dec","Dec_err_plus","Dec_err_minus","GCN_link"]),ignore_index=True)
 
-for ic_event in ic_inf:
-    gcn_nr=ic_event[1]
-    if int(gcn_nr) in gcn_list_in_db:
-        pass
-    else:
-        df=df.append(pd.DataFrame([ic_event],columns=["IC Name","GCN_nr","Date","Time (UTC)",
-                    "RA","Ra_err_plus","Ra_err_minus",
-                    "Dec","Dec_err_plus","Dec_err_minus","GCN_link"]),ignore_index=True)
+    df.to_csv("GCN_circular_neutrinos.csv",index=False)
 
-df.to_csv("GCN_circular_neutrinos.csv",index=False)
+    #reload and sort it
+    df=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
+    df=df.sort_values(by=['GCN_nr'],ascending=False)      
+    df.to_csv("GCN_circular_neutrinos.csv",index=False)
 
-#reload and sort it
-df=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
-df=df.sort_values(by=['GCN_nr'],ascending=False)      
-df.to_csv("GCN_circular_neutrinos.csv",index=False)
-
-#CAREFUL, resets the whole progress of the file, only uncomment when sure about it!!
-"""
-df=pd.DataFrame(ic_inf,columns=["IC Name","GCN_nr","Date","Time (UTC)",
-                    "RA","Ra_err_plus","Ra_err_minus",
-                    "Dec","Dec_err_plus","Dec_err_minus","GCN_link"])
-df.to_csv("GCN_circular_neutrinos.csv",index=False)
-"""
-
+    #CAREFUL, resets the whole progress of the file, only uncomment when sure about it!!
+    """
+    df=pd.DataFrame(ic_inf,columns=["IC Name","GCN_nr","Date","Time (UTC)",
+                        "RA","Ra_err_plus","Ra_err_minus",
+                        "Dec","Dec_err_plus","Dec_err_minus","GCN_link"])
+    df.to_csv("GCN_circular_neutrinos.csv",index=False)
+    """
+except:
+    print("Connection error to GCN data base")

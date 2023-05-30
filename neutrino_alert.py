@@ -152,9 +152,9 @@ def getRFCsources_inCirc(df_VLBI,neutrino_ra,neutrino_dec,neutrino_ra_err,neutri
     field_sources=df_VLBI[(df_VLBI["ra"]<(neutrino_ra+neutrino_ra_err[0])) 
                           & (df_VLBI["ra"]>(neutrino_ra+neutrino_ra_err[1])) 
                           & (df_VLBI["decl"]<(neutrino_dec+neutrino_dec_err[0])) 
-                          & (df_VLBI["decl"]>(neutrino_dec+neutrino_dec_err[1]))][["J2000name"]]
+                          & (df_VLBI["decl"]>(neutrino_dec+neutrino_dec_err[1]))][["J2000name","ra","decl"]]
     
-    return field_sources["J2000name"].values
+    return [field_sources["J2000name"].values,field_sources["ra"],field_sources["decl"]]
 
 
 
@@ -185,7 +185,10 @@ def sendGCNMail(password,dataframe):
     ra_err=[float(new_neutrino["Ra_err_plus"]),float(new_neutrino["Ra_err_minus"])]
     dec=float(new_neutrino["Dec"])
     dec_err=[float(new_neutrino["Dec_err_plus"]),float(new_neutrino["Dec_err_minus"])]
-    field_sources=getRFCsources_inCirc(df_VLBI,ra,dec,ra_err,dec_err)
+    field_sources=getRFCsources_inCirc(df_VLBI,ra,dec,ra_err,dec_err)[0]
+    field_sources_ra=getRFCsources_inCirc(df_VLBI,ra,dec,ra_err,dec_err)[1]
+    field_sources_decl=getRFCsources_inCirc(df_VLBI,ra,dec,ra_err,dec_err)[2]
+
     gcn_url=new_neutrino["GCN_link"].split('"')[1]
 
     message="""Subject: {subject}
@@ -226,7 +229,7 @@ def sendGCNMail(password,dataframe):
             for name, email in reader:
                 source_list=""
                 for j,source in enumerate(field_sources):
-                    source_list=source_list+"\n"+str(source)
+                    source_list=source_list+"\n SNAM="+str(source)+" ; SLAM=" + field_sources_ra[j].split(":")[0] + " " + field_sources_ra[j].split(":")[1] + " " + field_sources_ra[j].split(":")[2] + "s ; SBET= " + field_sources_dec[j].split(":")[0] + " " + field_sources_dec[j].split(":")[1] + " " + field_sources_dec[j].split(":")[2] + '";'
                 rfc_url="http://astrogeo.org/cgi-bin/calib_search_form.csh?ra="+str(new_neutrino["RA"])+"d&dec="+str(new_neutrino["Dec"])+"d&num_sou=20&format=html"
                 message_to_send=message(name=name,n_rfc=len(field_sources),source_list=source_list,rfc_url=rfc_url,gcn_url=gcn_url)
                 server.sendmail(sender_email,email,message_to_send)
@@ -240,7 +243,7 @@ n_ini=len(getNeutrinoAlert())
 #also load GCN circulars
 df_circ=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
 n_circ_ini=len(df_circ)
-print(n_circ_ini)
+
 #ask for email password:
 password=input("Please enter your email password:")
 
@@ -259,7 +262,7 @@ while True:
         os.system("python3 update_circular_alert.py")
         df_circ_new=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
         n_circ_new=len(df_circ_new)
-        print(n_circ_new)
+    
         #check if new AMON alert is available
         if n_new>n_ini:
             if new_table["Rev"][0]==0: #in this case, this is a completely new alert
@@ -267,13 +270,11 @@ while True:
                 DoAlert()
             else: #in this case, this is only an update, to a previous alert
                 sendInfoMail(password,update=True)
-    
+            n_ini=n_ini+1 
         #check if new GCN circular is available
         if n_circ_new>n_circ_ini:
             sendGCNMail(password,df_circ_new)
-
-        n_ini=n_new
-        n_circ_ini=n_circ_new
+            n_circ_ini=n_circ_ini+1
     except:
         print("Connection error...")
     
