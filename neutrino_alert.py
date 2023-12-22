@@ -323,6 +323,8 @@ password=input("Please enter your email password:")
 
 #let the program run
 count=0
+error_count_gcn=0
+error_count_amon=0
 while True:
 
     try:    
@@ -345,7 +347,7 @@ while True:
             n_ini=n_ini+1 
     except:
         print("Connection error to AMON database")
-
+        error_count_amon+=1
     try:
         #check updated GCN circular alerts
         os.system("python3 update_circular_alert.py")
@@ -358,22 +360,35 @@ while True:
             n_circ_ini=n_circ_ini+1
     except:
         print("Connection error to GCN Notice database")
+        error_count_gcn+=1
 
     #send mail everyday to check if alert is running
     if count==0 or count>1439:
-        count=0
+
         check_message="""
         Hi Flo, <br /> <br /> 
     
         I am still running.<br /> <br /> 
+        {amon_info} % of my requests to AMON failed.<br />
+        {gcn_info} % of my request to GCN failed.<br /><br />
 
         Enjoy the rest of your day!<br /> 
         Your TELAMON Neutrino Alert<br /> 
 
         """
+        if count>0:
+            check_message=check_message.format(amon_info="{:.2f}".format(error_count_amon/count*100),
+                    gcn_info="{:.2f}".format(error_count_gcn/count*100))
+        else:
+            check_message=check_message.format(amon_info="{:.2f}".format(0.0),gcn_info="{:.2f}".format(0.0))
 
         send_email(password,"Neutrino Alert","neutrino.alert@mail.de",
                     "smtp.mail.de",587,["florian.eppel@uni-wuerzburg.de"],"Daily Neutrino Alert Check",check_message,check_message)
+
+        #reset counts
+        count=0
+        error_count_gcn=0
+        error_count_amon=0
 
     #wait for one minute
     time.sleep(60)
