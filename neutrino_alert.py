@@ -282,9 +282,6 @@ while True:
     except:
         print("Connection error...")
 
-    time.sleep(60)
-    count+=1
-
     #send mail everyday to check if alert is running
     if count==0 or count>1439:
         count=0
@@ -300,3 +297,7 @@ while True:
         """
 
         sendMail("neutrinoalert@mail.de",password,"florian.eppel@gmx.de",check_message)
+
+    #wait for one minute
+    time.sleep(60)
+    count+=1
