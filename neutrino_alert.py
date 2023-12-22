@@ -32,7 +32,7 @@ def sendMail(sender_email,password,email,message,port=587,smtp_server="smtp.mail
         server.starttls(context=context)
         server.login(sender_email, password)
 
-    server.sendmail(sender_email,email,message_to_send)
+    server.sendmail(sender_email,email,message)
     print("Mail sent to "+ name + " ("+email+")")
 
 #let the LEDs blink
@@ -296,7 +296,7 @@ while True:
 
         """
 
-        sendMail("neutrinoalert@mail.de",password,"florian.eppel@gmx.de",check_message)
+        sendMail("neutrino.alert@mail.de",password,"florian.eppel@gmx.de",check_message)
 
     #wait for one minute
     time.sleep(60)
