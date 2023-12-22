@@ -21,6 +21,20 @@ def getNeutrinoAlert():
     df=pd.DataFrame(df_list[-1])
     return df
 
+def sendMail(sender_email,password,email,message,port=587,smtp_server="smtp.mail.de"):
+
+    # Create a secure SSL context
+    context = ssl.create_default_context()
+
+    print("Starting server...")
+
+    with smtplib.SMTP(smtp_server, port) as server:
+        server.starttls(context=context)
+        server.login(sender_email, password)
+
+    server.sendmail(sender_email,email,message_to_send)
+    print("Mail sent to "+ name + " ("+email+")")
+
 #let the LEDs blink
 def DoAlert(sleep_time=0.05,duration=60):
     #Initialize LED pins
@@ -120,32 +134,21 @@ def sendInfoMail(password,update=False):
         message=partial(message.format,subject="New Neutrino Alert " + neutrino_name,
                 statement="there has been a new IceCube-Neutrino alert reported (" + neutrino_name + ").")
 
-    #send email
-    port = 587 # For SSL
-    smtp_server = "smtp.mail.de"
-    sender_email = "neutrino.alert@mail.de"
-        
-    # Create a secure SSL context
-    context = ssl.create_default_context()
-    
-    print("Starting server...")
-
-    with smtplib.SMTP(smtp_server, port) as server:
-        server.starttls(context=context)
-        server.login("neutrino.alert@mail.de", password)
-        print("Opening contacts_file.csv")
-        with open("contacts_file.csv") as file:
-            reader = csv.reader(file)
-            next(reader)
-            for name, email in reader:
-                source_list=""
-                for j,source in enumerate(sources):
-                    source_list=source_list+"\n"+str(source)+" ("+"{:.2f}".format(distance_to_neutrino[j])+" arcmin from center)"
-                rfc_url="http://astrogeo.org/cgi-bin/calib_search_form.csh?ra="+str(new_neutrino["RA [deg]"])+"d&dec="+str(new_neutrino["Dec [deg]"])+"d&num_sou=20&format=html"
-                gcn_url="https://gcn.gsfc.nasa.gov/notices_amon_g_b/"+str(new_neutrino["RunNum_EventNum"])+".amon"
-                message_to_send=message(name=name,n_rfc=len(sources),source_list=source_list,rfc_url=rfc_url,gcn_url=gcn_url)
-                server.sendmail(sender_email,email,message_to_send)
-                print("Mail sent to "+ name + " ("+email+")")
+    sendMail("neutrino.alert@mail.de"
+    #send mail
+    print("Opening contacts_file.csv")
+    with open("contacts_file.csv") as file:
+        reader = csv.reader(file)
+        next(reader)
+        for name, email in reader:
+            source_list=""
+            for j,source in enumerate(sources):
+                source_list=source_list+"\n"+str(source)+" ("+"{:.2f}".format(distance_to_neutrino[j])+" arcmin from center)"
+            rfc_url="http://astrogeo.org/cgi-bin/calib_search_form.csh?ra="+str(new_neutrino["RA [deg]"])+"d&dec="+str(new_neutrino["Dec [deg]"])+"d&num_sou=20&format=html"
+            gcn_url="https://gcn.gsfc.nasa.gov/notices_amon_g_b/"+str(new_neutrino["RunNum_EventNum"])+".amon"
+            message_to_send=message(name=name,n_rfc=len(sources),source_list=source_list,rfc_url=rfc_url,gcn_url=gcn_url)
+            sendMail("neutrino.alert@mail.de",password,email,message_to_send)
+        print("Mail sent to "+ name + " ("+email+")")
 
 def getRFCsources_inCirc(df_VLBI,neutrino_ra,neutrino_dec,neutrino_ra_err,neutrino_dec_err):
 
@@ -252,17 +255,13 @@ password=input("Please enter your email password:")
 #DoAlert()
 
 #let the program run
+count=0
 while True:
     try:    
         #check updated AMON alerts
         new_table=getNeutrinoAlert()
         n_new=len(new_table)
-
-        #check updated GCN circular alerts
-        os.system("python3 update_circular_alert.py")
-        df_circ_new=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
-        n_circ_new=len(df_circ_new)
-    
+        
         #check if new AMON alert is available
         if n_new>n_ini:
             if new_table["Rev"][0]==0: #in this case, this is a completely new alert
@@ -271,10 +270,34 @@ while True:
             else: #in this case, this is only an update, to a previous alert
                 sendInfoMail(password,update=True)
             n_ini=n_ini+1 
+
+        #check updated GCN circular alerts
+        os.system("python3 update_circular_alert.py")
+        df_circ_new=pd.DataFrame(data=pd.read_csv("GCN_circular_neutrinos.csv"))
+        n_circ_new=len(df_circ_new)
+ 
         #check if new GCN circular is available
         if n_circ_new>n_circ_ini:
             sendGCNMail(password,df_circ_new)
             n_circ_ini=n_circ_ini+1
     except:
         print("Connection error...")
+
+    time.sleep(60)
+    count+=1
+
+    #send mail everyday to check if alert is running
+    if count==0 or count>1439:
+        count=0
+        check_message="""Subject: Neutrino Check
+
+        Hi Flo, 
     
+        I am still running.
+
+        Enjoy the rest of your day!
+        Your TELAMON Neutrino Alert
+
+        """
+
+        sendMail("neutrinoalert@mail.de",password,"florian.eppel@gmx.de",check_message)
