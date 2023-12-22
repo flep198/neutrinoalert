@@ -134,7 +134,6 @@ def sendInfoMail(password,update=False):
         message=partial(message.format,subject="New Neutrino Alert " + neutrino_name,
                 statement="there has been a new IceCube-Neutrino alert reported (" + neutrino_name + ").")
 
-    sendMail("neutrino.alert@mail.de"
     #send mail
     print("Opening contacts_file.csv")
     with open("contacts_file.csv") as file:
