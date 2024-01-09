@@ -12,6 +12,9 @@ from datetime import datetime
 from functools import partial
 import subprocess
 import os
+from pydub import AudioSegment 
+import re
+import pygame 
 
 #import mimetypes
 
@@ -110,13 +113,35 @@ def sendMail(sender_email,password,email,message,port=587,smtp_server="smtp.mail
     print("Mail sent to "+ name + " ("+email+")")
 
 #let the LEDs blink
-def DoAlert(sleep_time=0.05,duration=60):
+def DoAlert(sleep_time=0.05,duration=60,audio_input=["alert.wav","matthias_alert.wav"],text_to_read="test"):
+    
+    try:
+        #create latest information about neutrino alert
+        
+        p=subprocess.Popen(["echo '"+ text_to_read + "' | ~/piper/piper --model en_US-amy-medium.onnx --output_file alert_text.wav"],shell=True)
+        audio_input.append("alert_text.wav")
+   
+        sleep(120)
+    
+        #combine wav files
+        sound1 = AudioSegment.from_wav(audio_input[0])
+        sound2 = AudioSegment.from_wav(audio_input[1])
+        combined = sound1+sound2
+        combined.export("step1.wav",format="wav")
+   
+        pygame.mixer.init()
+        pygame.mixer.music.load("step1.wav")
+        pygame.mixer.music.queue("alert_text.wav")
+        pygame.mixer.music.play()
+
+    except:
+        print("Error with doing the alert")
+
     #Initialize LED pins
     leds=LEDBoard(21,20,7,8,25,24,23,18,15)
     start_time=time.time()
     end_time=time.time()
-    #play audio alert
-    player=subprocess.Popen(["mplayer","alert.wav","-loop","10"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    
     #do alert
     while (end_time-start_time)<duration:
         leds.value=(0,1,1,1,1,1,1,1,1)
@@ -138,9 +163,11 @@ def DoAlert(sleep_time=0.05,duration=60):
         leds.value=(1,1,1,1,1,1,1,1,0)
         sleep(sleep_time)
         end_time=time.time()
+
+    pygame.mixer.stop()
     
 #this sends an email with information about the latest neutrino event in AMON table
-def sendInfoMail(password,update=False):
+def sendInfoMail(password,contacts_file="contacts.csv",update=False):
     print("Neutrino Alert!")
    
     #create information to send in email
@@ -203,19 +230,22 @@ def sendInfoMail(password,update=False):
     if update:
         subject="Update for Neutrino Event " + neutrino_name
         message=partial(message.format,statement="there has been an update to a previous neutrino event (" + neutrino_name + ").")
+        didAlert=True
     else:
         subject="New Neutrino Alert " + neutrino_name
         message=partial(message.format,statement="there has been a new IceCube-Neutrino alert reported (" + neutrino_name + ").")
+        didAlert=False
 
     #send mail
     print("Opening contacts_file.csv")
-    with open("contacts_file.csv") as file:
+    with open(contacts_file) as file:
         reader = csv.reader(file)
         next(reader)
+        didAlert=False 
         for name, email in reader:
             source_list=""
             for j,source in enumerate(sources):
-                source_list=source_list+"\n"+str(source)+" ("+"{:.2f}".format(distance_to_neutrino[j])+" arcmin from center)"
+                source_list=source_list+"\n"+str(source)+" ("+"{:.2f}".format(distance_to_neutrino[j])+" arcmin from center)<br \>"
             rfc_url="http://astrogeo.org/cgi-bin/calib_search_form.csh?ra="+str(new_neutrino["RA [deg]"])+"d&dec="+str(new_neutrino["Dec [deg]"])+"d&num_sou=20&format=html"
             gcn_url="https://gcn.gsfc.nasa.gov/notices_amon_g_b/"+str(new_neutrino["RunNum_EventNum"])+".amon"
             
@@ -223,8 +253,17 @@ def sendInfoMail(password,update=False):
             rfc_url="<a href="+rfc_url+">Link</a>"
             gcn_url="<a href="+gcn_url+">Link</a>"
             message_to_send=message(name=name,n_rfc=len(sources),source_list=source_list,rfc_url=rfc_url,gcn_url=gcn_url)
+            if not didAlert:
+                didAlert=True
+                print(message_to_send)
+                message_to_read=re.compile('<.*?>')
+                message_to_read=re.sub(message_to_read,'', message_to_send)
+                print(message_to_read)
+                DoAlert(text_to_read=message_to_read)  
+
             send_email(password,"Neutrino Alert","neutrino.alert@mail.de",
                     "smtp.mail.de",587,[email],subject,message_to_send,message_to_send)
+            
             print("Mail sent to "+ name + " ("+email+")")
 
 def getRFCsources_inCirc(df_VLBI,neutrino_ra,neutrino_dec,neutrino_ra_err,neutrino_dec_err):
@@ -239,7 +278,7 @@ def getRFCsources_inCirc(df_VLBI,neutrino_ra,neutrino_dec,neutrino_ra_err,neutri
 
 
 
-def sendGCNMail(password,dataframe):
+def sendGCNMail(password,dataframe,contacts_file="contacts.csv"):
     print("Neutrino Alert!")
    
     #create information to send in email
@@ -290,7 +329,7 @@ def sendGCNMail(password,dataframe):
     subject="Update for Neutrino Event " + neutrino_name
 
     print("Opening contacts_file.csv")
-    with open("contacts_file.csv") as file:
+    with open(contacts_file) as file:
         reader = csv.reader(file)
         next(reader)
         for name, email in reader:
@@ -317,7 +356,7 @@ n_circ_ini=len(df_circ)
 password=input("Please enter your email password:")
 
 #test alert
-#sendInfoMail(password)
+sendInfoMail(password,contacts_file="test_contacts.csv")
 #sendGCNMail(password,df_circ)
 #DoAlert()
 
@@ -341,7 +380,6 @@ while True:
         if n_new>n_ini:
             if new_table["Rev"][0]==0: #in this case, this is a completely new alert
                 sendInfoMail(password)
-                DoAlert()
             else: #in this case, this is only an update, to a previous alert
                 sendInfoMail(password,update=True)
             n_ini=n_ini+1 

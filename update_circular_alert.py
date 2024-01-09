@@ -87,7 +87,7 @@ def getNeutrinoInfo(urls):
                 ic_html_link = link.get("href")
                 gcn_nr = ic_html_link.split("/")[-1]
                 try:
-                    driver.get("https://gcn.nasa.gov"+ic_html_link)
+                    driver.get("https://gcn.nasa.gov/"+ ic_html_link)
                     ic_html=driver.page_source
                 except:
                     print("Connection error to GCN database for " + ic_html_link)
@@ -115,13 +115,13 @@ def getNeutrinoInfo(urls):
                         else:
                             dec_err_plus=extract_number(ic_str_line,1)
                             dec_err_minus=extract_number(ic_str_line,2)
-                gcn_link='=HYPERLINK("https://gcn.gsfc.nasa.gov/gcn3/'+str(gcn_nr)+',"GCN link")'
+                gcn_link='=HYPERLINK("https://gcn.nasa.gov/circulars/'+str(gcn_nr)+'","GCN link")'
                 ic=[[ic_name,int(gcn_nr), date,time,ra,ra_err_plus,ra_err_minus,dec,dec_err_plus,dec_err_minus,gcn_link]]            
                 ic_inf=np.append(ic_inf,ic,axis=0)
 
     return ic_inf[1:]
 
-try:
+if True:
     #PART 1: QUERY GCN CIRCULARS FOR NEW EVENTS
     #get list of neutrino events from GCN website
     ic_inf=getNeutrinoInfo(urls)
@@ -153,5 +153,5 @@ try:
                         "Dec","Dec_err_plus","Dec_err_minus","GCN_link"])
     df.to_csv("GCN_circular_neutrinos.csv",index=False)
     """
-except:
+else:
     print("Connection error to GCN data base")
